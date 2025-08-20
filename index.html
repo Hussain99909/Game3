@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>أوصل مجتبى للمدرسة - تحدي القطط</title>
+
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: 'Cairo', sans-serif;
+      touch-action: none;
+      user-select: none;
+      background: #00121f; /* Default background */
+    }
+
+    #game-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      /* Initial background is night */
+      background: linear-gradient(180deg, #00121f, #031f33, #061e2a);
+      background-size: 100% 100%;
+      transition: background 1.2s ease;
+    }
+
+    #info {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 100;
+      color: #fff;
+      font-size: 1.1em;
+      text-shadow: 1px 1px 2px black;
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      background: rgba(0,0,0,0.7);
+      padding: 6px 12px;
+      border-radius: 12px;
+      white-space: nowrap;
+    }
+    #info span.label { opacity: .8; }
+
+    #buttons {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 110;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .btn {
+      padding: 8px 12px;
+      border: none;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.2);
+      color: #fff;
+      font-size: 0.95em;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    #game-over, #game-win {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: rgba(0, 0, 0, 0.85);
+      color: white;
+      padding: 20px 28px;
+      border-radius: 16px;
+      text-align: center;
+      z-index: 200;
+      display: none;
+    }
+    #game-over h2, #game-win h2 { margin: 0 0 8px; }
+
+    #footerTitle {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 100;
+      color: #fff;
+      font-size: 1em;
+      background: rgba(0,0,0,0.6);
+      padding: 4px 10px;
+      border-radius: 10px;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-container">
+    <div id="info">
+      <span class="label">المستوى:</span><span id="level">1</span>
+      <span class="label">النقاط:</span><span id="score">0</span>
+      <span class="label" id="catsLabel">القطط:</span><span id="cats-count">0 / 100</span>
+    </div>
+
+    <div id="buttons">
+       <button id="transformBtn" class="btn">🔄 دبابة</button>
+      <button id="muteBtn" class="btn">🔇 كتم</button>
+      <button id="restartBtn" class="btn" onclick="location.reload()">🔁 إعادة</button>
+    </div>
+
+    <div id="game-over">
+      <h2>انتهت اللعبة!</h2>
+      <p id="loseText">اصطدمت بقطة 🐈 — اضغط إعادة للمحاولة</p>
+    </div>
+
+    <div id="game-win">
+      <h2 id="winTitle">لقد أنجزت المهمة! 🎉</h2>
+      <p id="winSub">أحسنت! لقد تجاوزت 100 قطة بنجاح.</p>
+    </div>
+
+    <div id="footerTitle">تحدي القطط</div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <script>
+    // ---------------- الحالة العامة ----------------
+    const level = 1;
+    const CATS_TO_WIN = 100;
+    let isNight = true; // Start at night
+
+    // ---------------- المشهد الأساسي ----------------
+    const gameContainer = document.getElementById('game-container');
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    gameContainer.appendChild(renderer.domElement);
+    
+    // إضاءة (سيتم تعديلها للنهار/الليل)
+    const ambient = new THREE.AmbientLight(0x606090, 1.4);
+    scene.add(ambient);
+    const sunOrMoon = new THREE.DirectionalLight(0xaabbff, 0.9);
+    sunOrMoon.position.set(10, 15, 5);
+    sunOrMoon.castShadow = true;
+    sunOrMoon.shadow.mapSize.set(2048, 2048);
+    scene.add(sunOrMoon);
+    const textureLoader = new THREE.TextureLoader();
+
+    // ---------------- المركبات والصور ----------------
+    let currentVehicle;
+    let vehicleType = 'taxi';
+    let photo, photo2; // photo for taxi, photo2 for tank
+
+    // Load photo for the taxi
+    textureLoader.load('Myphoto.png', function (texture) {
+        const photoMaterial = new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide });
+        const photoGeometry = new THREE.PlaneGeometry(1.05, 1.05);
+        photo = new THREE.Mesh(photoGeometry, photoMaterial);
+        photo.position.set(0, 1.8, -0.3);
+        if (currentVehicle && vehicleType === 'taxi') {
+            currentVehicle.model.add(photo);
+        }
+    });
+
+    // --- تعديل: تحميل صورة الدبابة ---
+    textureLoader.load('Myphoto2.png', function (texture) {
+        const photoMaterial = new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide });
+        const photoGeometry = new THREE.PlaneGeometry(1.2, 1.2);
+        photo2 = new THREE.Mesh(photoGeometry, photoMaterial);
+        photo2.position.set(0, 1.6, 0); // Position on top of the tank turret
+        if (currentVehicle && vehicleType === 'tank') {
+            currentVehicle.model.add(photo2);
+        }
+    });
+
+    function createTaxi() {
+      const taxi = new THREE.Group();
+      const yellowMaterial = new THREE.MeshPhongMaterial({ color: 0xFFC107 });
+      const mainBody = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.5, 2.8), yellowMaterial);
+      mainBody.position.y = 0.5; mainBody.castShadow = true; taxi.add(mainBody);
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, 1.4), new THREE.MeshPhongMaterial({ color: 0xffffff }));
+      cabin.position.set(0, 1.05, -0.3); cabin.castShadow = true; taxi.add(cabin);
+      const wheelMaterial = new THREE.MeshPhongMaterial({ color: 0x212121 });
+      const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 24);
+      const wheelPositions = [
+        new THREE.Vector3(-0.75, 0.3, 1), new THREE.Vector3(0.75, 0.3, 1),
+        new THREE.Vector3(-0.75, 0.3, -1), new THREE.Vector3(0.75, 0.3, -1)
+      ];
+      const wheels = [];
+      wheelPositions.forEach(pos => {
+        const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+        wheel.position.copy(pos); wheel.rotation.z = Math.PI / 2;
+        wheel.castShadow = true; wheels.push(wheel); taxi.add(wheel);
+      });
+      if (photo) taxi.add(photo);
+      return { model: taxi, wheels };
+    }
+
+    function createTank() {
+        const tank = new THREE.Group();
+        const greenMat = new THREE.MeshPhongMaterial({ color: 0x556B2F });
+        const darkMat = new THREE.MeshPhongMaterial({ color: 0x212121 });
+        const body = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.7, 3.2), greenMat);
+        body.position.y = 0.6; body.castShadow = true; tank.add(body);
+        const turret = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.7, 0.5, 16), greenMat);
+        turret.position.y = 1.2; turret.castShadow = true; tank.add(turret);
+        const cannon = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.8, 8), darkMat);
+        cannon.position.y = 1.2; cannon.position.z = -1.2; cannon.rotation.x = Math.PI / 2;
+        cannon.castShadow = true; tank.add(cannon);
+        const treadGeo = new THREE.BoxGeometry(0.3, 0.8, 3.6);
+        const leftTread = new THREE.Mesh(treadGeo, darkMat);
+        leftTread.position.set(-0.9, 0.4, 0); leftTread.castShadow = true; tank.add(leftTread);
+        const rightTread = new THREE.Mesh(treadGeo, darkMat);
+        rightTread.position.set(0.9, 0.4, 0); rightTread.castShadow = true; tank.add(rightTread);
+        // --- تعديل: إضافة الصورة للدبابة ---
+        if (photo2) tank.add(photo2);
+        return { model: tank, wheels: [] };
+    }
+
+    function setVehicle(type) {
+        if (currentVehicle) scene.remove(currentVehicle.model);
+        let vehicleData = type === 'taxi' ? createTaxi() : createTank();
+        currentVehicle = vehicleData;
+        currentVehicle.model.position.z = 3;
+        currentVehicle.model.name = type;
+        scene.add(currentVehicle.model);
+        vehicleType = type;
+    }
+    setVehicle('taxi');
+
+    const transformBtn = document.getElementById('transformBtn');
+    function toggleVehicle() {
+        if (isGameOver || isWin) return;
+        const newType = vehicleType === 'taxi' ? 'tank' : 'taxi';
+        
+        // --- تعديل: تغيير البيئة ---
+        setEnvironment(newType === 'tank');
+
+        const currentX = currentVehicle.model.position.x;
+        const currentZ = currentVehicle.model.position.z;
+        setVehicle(newType);
+        currentVehicle.model.position.x = currentX;
+        currentVehicle.model.position.z = currentZ;
+        transformBtn.textContent = newType === 'taxi' ? '🔄 دبابة' : '🔄 تاكسي';
+        playTone(300, 0.1, 'square', 0.15);
+        if (!muted) {
+            if (newType === 'tank') {
+                stopBgm(); tankMusic.currentTime = 0; tankMusic.play();
+            } else {
+                tankMusic.pause(); startBgm();
+            }
+        }
+    }
+    transformBtn.addEventListener('click', toggleVehicle);
+
+    function createCat() {
+      const cat = new THREE.Group();
+      const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0x424242 });
+      const faceMaterial = new THREE.MeshPhongMaterial({ color: 0x111111 });
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 1), bodyMaterial);
+      body.castShadow = true; cat.add(body);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), bodyMaterial);
+      head.position.set(0, 0.2, -0.6); head.castShadow = true; cat.add(head);
+      const earGeo = new THREE.ConeGeometry(0.15, 0.3, 4);
+      const leftEar = new THREE.Mesh(earGeo, bodyMaterial);
+      leftEar.position.set(-0.18, 0.55, -0.6); leftEar.rotation.z = -Math.PI/10; cat.add(leftEar);
+      const rightEar = new THREE.Mesh(earGeo, bodyMaterial);
+      rightEar.position.set(0.18, 0.55, -0.6); rightEar.rotation.z = Math.PI/10; cat.add(rightEar);
+      const eyeGeo = new THREE.SphereGeometry(0.08, 8, 8);
+      const leftEye = new THREE.Mesh(eyeGeo, faceMaterial); leftEye.position.set(-0.15, 0.3, -0.85); cat.add(leftEye);
+      const rightEye = new THREE.Mesh(eyeGeo, faceMaterial); rightEye.position.set(0.15, 0.3, -0.85); cat.add(rightEye);
+      const legGeo = new THREE.BoxGeometry(0.12, 0.4, 0.12);
+      const legs = [];
+      const legPositions = [[-0.18, -0.45, 0.3], [0.18, -0.45, 0.3], [-0.18, -0.45, -0.3], [0.18, -0.45, -0.3]];
+      legPositions.forEach(pos => {
+        const leg = new THREE.Mesh(legGeo, bodyMaterial);
+        leg.position.set(pos[0], pos[1], pos[2]); leg.castShadow = true;
+        legs.push(leg); cat.add(leg);
+      });
+      cat.scale.set(1.3, 1.3, 1.3);
+      return { model: cat, legs, type: 'cat' };
+    }
+
+    // ---------------- الطريق والبيئة ----------------
+    const road = new THREE.Mesh(new THREE.PlaneGeometry(10, 200), new THREE.MeshPhongMaterial({ color: 0x444444 }));
+    road.rotation.x = -Math.PI / 2; road.receiveShadow = true; scene.add(road);
+    const groundGeometry = new THREE.PlaneGeometry(40, 200);
+    const groundMaterial = new THREE.MeshPhongMaterial({ color: 0x3a593a });
+    const groundLeft = new THREE.Mesh(groundGeometry, groundMaterial); groundLeft.rotation.x = -Math.PI / 2; groundLeft.position.x = -25; groundLeft.receiveShadow = true; scene.add(groundLeft);
+    const groundRight = new THREE.Mesh(groundGeometry, groundMaterial); groundRight.rotation.x = -Math.PI / 2; groundRight.position.x = 25; groundRight.receiveShadow = true; scene.add(groundRight);
+
+    const houses = [];
+    function createHouse(x, z, night=false) {
+      const group = new THREE.Group();
+      const wallMat = new THREE.MeshPhongMaterial({ color: night ? 0x2e4053 : 0xA0522D });
+      const roofMat = new THREE.MeshPhongMaterial({ color: night ? 0x1c2833 : 0xD2691E });
+      const base = new THREE.Mesh(new THREE.BoxGeometry(4, 3.2, 4), wallMat);
+      base.position.y = 1.6; base.castShadow = true; group.add(base);
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(3.5, 2, 4), roofMat);
+      roof.position.y = 3.8; roof.rotation.y = Math.PI / 4; roof.castShadow = true; group.add(roof);
+      const winMat = night ? new THREE.MeshPhongMaterial({ color: 0xf1c40f, emissive: 0xf39c12, emissiveIntensity: 0.9 }) : new THREE.MeshPhongMaterial({ color: 0x87CEEB });
+      for (let i= -1; i<=1; i+=2) {
+        const w = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.05), winMat);
+        w.position.set(i*1.2, 1.6, 2.03); group.add(w);
+      }
+      group.position.set(x, 0, z);
+      scene.add(group);
+      houses.push(group);
+    }
+    function populateHouses(night=false) {
+      houses.forEach(h => scene.remove(h)); houses.length = 0;
+      for (let i = 0; i > -200; i -= 20) {
+        createHouse(-15, i, night);
+        createHouse(15, i - 10, night);
+      }
+    }
+    populateHouses(isNight); // Initial population
+
+    // --- تعديل: دالة تغيير البيئة ---
+    function setEnvironment(night) {
+        isNight = night;
+        if (night) {
+            gameContainer.style.background = 'linear-gradient(180deg, #00121f, #031f33, #061e2a)';
+            ambient.color.setHex(0x606090);
+            ambient.intensity = 1.4;
+            sunOrMoon.color.setHex(0xaabbff);
+            sunOrMoon.intensity = 0.9;
+            groundMaterial.color.setHex(0x3a593a);
+        } else { // Day
+            gameContainer.style.background = 'linear-gradient(180deg, #87CEEB, #B0E0E6, #ADD8E6)';
+            ambient.color.setHex(0xaaaaaa);
+            ambient.intensity = 1.8;
+            sunOrMoon.color.setHex(0xffeedd);
+            sunOrMoon.intensity = 1.5;
+            groundMaterial.color.setHex(0x6B8E23);
+        }
+        populateHouses(night);
+    }
+
+    // ---------------- إعدادات اللعبة ----------------
+    let score = 0, speed = 0.25, isGameOver = false, isWin = false;
+    let catsCount = 0;
+    const obstacles = [];
+    const scoreElement = document.getElementById('score');
+    const catsCountElement = document.getElementById('cats-count');
+    const gameOverElement = document.getElementById('game-over');
+    const gameWinElement = document.getElementById('game-win');
+
+    camera.position.set(0, 5, 9);
+    camera.lookAt(0, 1, 0);
+
+    // ---------------- أصوات (WebAudio) ----------------
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const audioCtx = new AudioContext();
+    let bgmInterval = null;
+    let muted = true;
+    const tankMusic = new Audio('sound.mp3');
+    tankMusic.loop = true;
+
+    function playTone(freq=440, duration=0.2, type='sine', volume=0.2) {
+      if (muted) return;
+      const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+      osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+      gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start();
+      setTimeout(() => { try { osc.stop(); } catch(_){} }, duration*1000);
+    }
+    function playHit() {
+      playTone(180, 0.12, 'square', 0.25);
+      setTimeout(()=>playTone(140, 0.12, 'square', 0.22), 120);
+      setTimeout(()=>playTone(100, 0.15, 'square', 0.2), 240);
+    }
+    function playCrush() { playTone(80, 0.25, 'sawtooth', 0.4); }
+    function playWin() {
+      const seq = [440, 554, 659, 880];
+      seq.forEach((f,i)=> setTimeout(()=>playTone(f, 0.18, 'triangle', 0.28), i*200));
+    }
+    function startBgm() {
+      if (muted || bgmInterval) return;
+      const notes1 = [262, 330, 392, 523, 392, 330]; let i = 0;
+      bgmInterval = setInterval(()=>{ playTone(notes1[i%notes1.length], 0.16, 'sine', 0.12); i++; }, 260);
+    }
+    function stopBgm() { if (bgmInterval) { clearInterval(bgmInterval); bgmInterval = null; } }
+
+    const muteBtn = document.getElementById('muteBtn');
+    function toggleMute() {
+      muted = !muted; muteBtn.textContent = muted ? '🔇 كتم' : '🔊 صوت';
+      if (!muted) {
+          audioCtx.resume();
+          if (vehicleType === 'tank') { tankMusic.play(); } else { startBgm(); }
+      } else { stopBgm(); tankMusic.pause(); }
+    }
+    muteBtn.addEventListener('click', toggleMute);
+
+    let audioArmed = false;
+    function armAudioOnce() {
+      if (audioArmed) return; audioArmed = true; muted = false;
+      muteBtn.textContent = '🔊 صوت'; audioCtx.resume(); startBgm();
+    }
+    gameContainer.addEventListener('pointerdown', armAudioOnce, { once: true });
+
+    // ---------------- توليد العوائق (القطط) ----------------
+    function createCatObstacle() {
+      const catData = createCat();
+      const catModel = catData.model;
+      catModel.position.set((Math.random() * 8) - 4, 0.2, -80);
+      catModel.castShadow = true;
+      scene.add(catModel);
+      obstacles.push(catData);
+    }
+    function spawnRandomObstacle() { if (Math.random() < 0.02) createCatObstacle(); }
+
+    // ---------------- تحكّم باللمس/الفأرة ----------------
+    let targetX = 0; let isPointerDown = false;
+    function handlePointerMove(e) {
+      if (!isPointerDown) return;
+      const screenX = e.touches ? e.touches[0].clientX : e.clientX;
+      const gameX = (screenX / window.innerWidth) * 8 - 4;
+      targetX = Math.max(-4, Math.min(4, gameX));
+    }
+    function onPointerDown(e) { isPointerDown = true; handlePointerMove(e); }
+    function onPointerUp() { isPointerDown = false; }
+    gameContainer.addEventListener('pointerdown', onPointerDown);
+    gameContainer.addEventListener('pointermove', handlePointerMove);
+    gameContainer.addEventListener('pointerup', onPointerUp);
+    gameContainer.addEventListener('pointerleave', onPointerUp);
+
+    // ---------------- أنيميشن اللعبة ----------------
+    const clock = new THREE.Clock();
+    function animate() {
+      if (isGameOver || isWin) return;
+      requestAnimationFrame(animate);
+      const t = clock.getElapsedTime();
+
+      if (currentVehicle) {
+        currentVehicle.model.position.x += (targetX - currentVehicle.model.position.x) * 0.1;
+        if (currentVehicle.wheels.length > 0) {
+            currentVehicle.wheels.forEach(wheel => wheel.rotation.x += 0.3);
+        }
+      }
+
+      for (let i = obstacles.length - 1; i >= 0; i--) {
+        const obstacle = obstacles[i];
+        obstacle.model.position.z += speed;
+        if (obstacle.type === 'cat') {
+          const legSpeed = t * 20;
+          obstacle.legs[0].rotation.x = Math.sin(legSpeed) * 0.8;
+          obstacle.legs[2].rotation.x = Math.sin(legSpeed) * 0.8;
+          obstacle.legs[1].rotation.x = -Math.sin(legSpeed) * 0.8;
+          obstacle.legs[3].rotation.x = -Math.sin(legSpeed) * 0.8;
+        }
+        
+        const carBox = new THREE.Box3().setFromObject(currentVehicle.model);
+        const obstacleBox = new THREE.Box3().setFromObject(obstacle.model);
+
+        if (carBox.intersectsBox(obstacleBox)) {
+          if (vehicleType === 'tank') {
+              playCrush();
+              scene.remove(obstacle.model);
+              obstacles.splice(i, 1);
+              score += 50;
+              scoreElement.innerText = score;
+              catsCount++;
+          } else {
+              isGameOver = true;
+              gameOverElement.style.display = 'block';
+              speed = 0;
+              stopBgm(); tankMusic.pause();
+              playHit();
+          }
+        }
+
+        if (obstacle.model.position.z > camera.position.z) {
+          scene.remove(obstacle.model);
+          obstacles.splice(i, 1);
+          if (!isGameOver) {
+            score += 100;
+            scoreElement.innerText = score;
+            catsCount++;
+            if (score % 500 === 0 && score > 0) speed += 0.02;
+          }
+        }
+        catsCountElement.textContent = `${catsCount} / ${CATS_TO_WIN}`;
+      }
+
+      houses.forEach(house => {
+        if (house.position.z > camera.position.z) house.position.z -= 200;
+        house.position.z += speed / 4;
+      });
+
+      if (catsCount >= CATS_TO_WIN && !isWin) {
+        isWin = true;
+        gameWinElement.style.display = 'block';
+        stopBgm(); tankMusic.pause();
+        playWin();
+        speed = 0;
+      }
+
+      spawnRandomObstacle();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
